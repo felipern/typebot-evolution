@@ -1,0 +1,109 @@
+version: '3.3'
+services:
+  typebot-db:
+    image: postgres:13
+    restart: always
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=typebot
+      - POSTGRES_PASSWORD=typebot
+    ports:
+      - "5432:5432"
+  typebot-builder:
+    image: baptistearno/typebot-builder:latest
+    restart: always
+    depends_on:
+      - typebot-db
+      - mailer
+      - evolution.api
+    ports:
+      - '8080:3000'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    # See https://docs.typebot.io/self-hosting/configuration/builder for more configuration options
+    environment:
+      - DATABASE_URL=postgresql://postgres:typebot@typebot-db:5432/typebot
+      - ENCRYPTION_SECRET=33DADL85thaMxBb/KI6qomqVVEK1I5pw
+      - NEXTAUTH_URL=http://typebot.local:8080
+      - NEXT_PUBLIC_VIEWER_URL=http://typebot.local:8081
+      - NEXTAUTH_URL_INTERNAL=http://localost:3000
+      - ADMIN_EMAIL=felipe_rn_@hotmail.com
+      - SMTP_HOST=mailer
+      - SMTP_PORT=1025
+      - NEXT_PUBLIC_SMTP_FROM=notify@typebot.local
+  typebot-viewer:
+    image: baptistearno/typebot-viewer:latest
+    restart: always
+    ports:
+      - '8081:3000'
+    # See https://docs.typebot.io/self-hosting/configuration/viewer for more configuration options
+    environment:
+      - DATABASE_URL=postgresql://postgres:typebot@typebot-db:5432/typebot
+      - NEXT_PUBLIC_VIEWER_URL=http://typebot.local:8081
+      - ENCRYPTION_SECRET=33DADL85thaMxBb/KI6qomqVVEK1I5pw
+      - NEXTAUTH_URL=http://typebot.local:8080
+      - SMTP_HOST=mailer
+      - SMTP_PORT=1025
+      - NEXT_PUBLIC_SMTP_FROM=notify@typebot.local
+    depends_on:
+      - mailer
+      - evolution.api
+  mailer:
+    image: schickling/mailcatcher
+    ports: ["1025:1025", "1080:1080"]
+  evolution.api:
+    image: davidsongomes/evolution-api:latest
+    ports: 
+      - 8082:8080
+    volumes:
+      - /.data/evolution_instances:/evolution/instances
+      - /.data/evolution_store:/evolution/store
+    command: ['node', './dist/src/main.js']
+    env_file:
+      - ./.env
+    expose:
+      - 8080
+    depends_on:
+      - rabbitmq
+      - mongodb
+      - redis
+  mongodb:
+    container_name: mongodb
+    image: mongo
+    restart: always
+    ports:
+      - 27017:27017
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=root
+      - MONGO_INITDB_ROOT_PASSWORD=root
+      - PUID=1000
+      - PGID=1000
+    volumes:
+      - ./.data/evolution_mongodb_data:/data/db
+      - ./.data/evolution_mongodb_configdb:/data/configdb
+    expose:
+      - 27017
+  redis:
+    image: redis:latest
+    container_name: redis
+    command: >
+      redis-server
+      --port 6379
+      --appendonly yes
+    volumes:
+      - ./.data/evolution_redis:/data
+    ports:
+      - 6379:6379
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+        - 5672:5672
+        - 15672:15672
+    volumes:
+        - ./.data/rabbitmq/data/:/var/lib/rabbitmq/
+        - ./.data/rabbitmq/log/:/var/log/rabbitmq 
+    expose: 
+      - 5672
+volumes:
+  db_data:
